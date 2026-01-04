@@ -36,4 +36,7 @@ export default defineConfig(async () => ({
       },
     },
   },
+  build: {
+    outDir: 'dist-cf',
+  },
 }));
