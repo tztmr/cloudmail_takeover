@@ -24,22 +24,33 @@ function App() {
     // Remove leading and trailing slashes
     path = path.replace(/^\/+|\/+$/g, '');
     
-    console.log("[App] Checked path:", path);
+    console.log("[App] Checked path (raw):", path);
 
-    if (path && path.length > 1 && path.includes('@')) {
-        const decodedEmail = decodeURIComponent(path);
-        console.log("[App] Found email in URL:", decodedEmail);
+    // Try to decode first
+    let decodedPath = "";
+    try {
+        decodedPath = decodeURIComponent(path);
+    } catch (e) {
+        console.error("Failed to decode path:", e);
+        decodedPath = path;
+    }
+    
+    console.log("[App] Decoded path:", decodedPath);
+
+    // Check if the decoded path looks like an email (contains @)
+    if (decodedPath && decodedPath.length > 3 && decodedPath.includes('@')) {
+        console.log("[App] Found email in URL:", decodedPath);
         
         // Update state
-        setToEmail(decodedEmail);
+        setToEmail(decodedPath);
         
         // Show status immediately
-        setFetchStatus(`检测到邮箱 ${decodedEmail}，正在自动查询...`);
+        setFetchStatus(`检测到邮箱 ${decodedPath}，正在自动查询...`);
         setIsLoadingFetch(true);
 
         // Automatically fetch emails for this address with a slight delay to ensure state updates
         setTimeout(() => {
-            fetchEmails(decodedEmail);
+            fetchEmails(decodedPath);
         }, 500);
     }
   }, []);
