@@ -29,9 +29,18 @@ function App() {
     if (path && path.length > 1 && path.includes('@')) {
         const decodedEmail = decodeURIComponent(path);
         console.log("[App] Found email in URL:", decodedEmail);
+        
+        // Update state
         setToEmail(decodedEmail);
-        // Automatically fetch emails for this address
-        fetchEmails(decodedEmail);
+        
+        // Show status immediately
+        setFetchStatus(`检测到邮箱 ${decodedEmail}，正在自动查询...`);
+        setIsLoadingFetch(true);
+
+        // Automatically fetch emails for this address with a slight delay to ensure state updates
+        setTimeout(() => {
+            fetchEmails(decodedEmail);
+        }, 500);
     }
   }, []);
 
