@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { QRCodeSVG } from 'qrcode.react';
 import "./App.css";
 import { mailService, Email, User } from "./services/api";
 
@@ -185,20 +186,36 @@ function App() {
                         <h2>查询收件箱</h2>
                         <p className="subtitle">输入邮箱地址查看最新邮件</p>
                     </div>
-                    <div className="search-bar">
-                        <input
-                            type="email"
-                            placeholder="例如: test@tztright.top"
-                            value={toEmail}
-                            onChange={(e) => setToEmail(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && fetchEmails()}
-                        />
-                        <button className="primary-btn" onClick={fetchEmails} disabled={isLoadingFetch}>
-                            {isLoadingFetch ? '查询中...' : '查询'}
-                        </button>
+                    <div className="search-container" style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                        <div style={{ flex: 1 }}>
+                            <div className="search-bar" style={{ marginBottom: '1rem' }}>
+                                <input
+                                    type="email"
+                                    placeholder="例如: test@tztright.top"
+                                    value={toEmail}
+                                    onChange={(e) => setToEmail(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && fetchEmails()}
+                                />
+                                <button className="primary-btn" onClick={fetchEmails} disabled={isLoadingFetch}>
+                                    {isLoadingFetch ? '查询中...' : '查询'}
+                                </button>
+                            </div>
+                            {fetchStatus && <div className={`status-msg ${fetchStatus.includes('错误') ? 'error' : 'info'}`}>{fetchStatus}</div>}
+                        </div>
+                        
+                        {toEmail && (
+                            <div className="qrcode-wrapper" style={{ 
+                                padding: '10px', 
+                                background: 'white', 
+                                border: '1px solid #e5e7eb', 
+                                borderRadius: '8px',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                                flexShrink: 0
+                            }}>
+                                <QRCodeSVG value={toEmail} size={100} level="M" />
+                            </div>
+                        )}
                     </div>
-                    
-                    {fetchStatus && <div className={`status-msg ${fetchStatus.includes('错误') ? 'error' : 'info'}`}>{fetchStatus}</div>}
 
                     <div className="email-list">
                         {emails.length === 0 ? (
