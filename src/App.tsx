@@ -20,9 +20,15 @@ function App() {
 
   useEffect(() => {
     // Check for email in URL path
-    const path = window.location.pathname.substring(1); // remove leading /
+    let path = window.location.pathname;
+    // Remove leading and trailing slashes
+    path = path.replace(/^\/+|\/+$/g, '');
+    
+    console.log("[App] Checked path:", path);
+
     if (path && path.length > 1 && path.includes('@')) {
         const decodedEmail = decodeURIComponent(path);
+        console.log("[App] Found email in URL:", decodedEmail);
         setToEmail(decodedEmail);
         // Automatically fetch emails for this address
         fetchEmails(decodedEmail);
