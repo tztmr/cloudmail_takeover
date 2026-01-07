@@ -26,12 +26,18 @@ export default {
 
     // 处理静态资源 (Assets)
     if (env.ASSETS) {
+      // 尝试获取静态资源
       const response = await env.ASSETS.fetch(request);
       
-      // SPA 支持：如果找不到资源且不是请求文件（无扩展名），返回 index.html
-      if (response.status === 404 && !url.pathname.includes('.')) {
-        const indexUrl = new URL('/index.html', request.url);
-        return env.ASSETS.fetch(new Request(indexUrl, request));
+      // SPA 支持：如果返回 404，且路径看起来不是静态文件（不包含扩展名，或者包含 @ 符号）
+      // 则返回 index.html，让前端路由处理
+      if (response.status === 404) {
+        const isFile = url.pathname.split('/').pop().includes('.');
+        // 如果路径中包含 @ (邮箱查询) 或者不是文件扩展名请求，则返回 index.html
+        if (!isFile || url.pathname.includes('@')) {
+          const indexUrl = new URL('/index.html', request.url);
+          return env.ASSETS.fetch(new Request(indexUrl, request));
+        }
       }
       
       return response;
