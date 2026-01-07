@@ -26,15 +26,22 @@ export default {
 
     // 处理静态资源 (Assets)
     if (env.ASSETS) {
+      // 优先处理 SPA 路由：如果路径包含 @（邮箱地址），直接返回 index.html
+      // 这样可以避免 ASSETS.fetch 可能返回的 307 重定向或错误
+      if (url.pathname.includes('@')) {
+        const indexUrl = new URL('/index.html', request.url);
+        return env.ASSETS.fetch(new Request(indexUrl, request));
+      }
+
       // 尝试获取静态资源
       const response = await env.ASSETS.fetch(request);
       
-      // SPA 支持：如果返回 404，且路径看起来不是静态文件（不包含扩展名，或者包含 @ 符号）
+      // SPA 支持：如果返回 404，且路径看起来不是静态文件（不包含扩展名）
       // 则返回 index.html，让前端路由处理
       if (response.status === 404) {
         const isFile = url.pathname.split('/').pop().includes('.');
-        // 如果路径中包含 @ (邮箱查询) 或者不是文件扩展名请求，则返回 index.html
-        if (!isFile || url.pathname.includes('@')) {
+        // 如果不是文件扩展名请求，则返回 index.html
+        if (!isFile) {
           const indexUrl = new URL('/index.html', request.url);
           return env.ASSETS.fetch(new Request(indexUrl, request));
         }
