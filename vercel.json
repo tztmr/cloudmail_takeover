@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/api-proxy/:path*",
-      "destination": "https://mail.tztright.top/api/public/:path*"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

@@ -1,5 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-
 export interface Email {
   emailId: number;
   sendEmail: string;
@@ -19,57 +17,79 @@ export interface User {
   password: string;
 }
 
-const isTauri = () => {
-    // @ts-ignore
-    return !!window.__TAURI_INTERNALS__;
-};
+export interface ApiConfig {
+  id: string;
+  name: string;
+  domain: string;
+  token: string;
+  emailDomain: string;
+}
 
-const API_BASE_URL = "/api-proxy";
-const AUTH_TOKEN = "8d66ef93-beef-42da-baa3-2d655dd9b51d";
+const API_PUBLIC_PATH = "/api/public";
+
+function normalizeDomain(domain: string): string {
+  const trimmed = domain.trim();
+  if (!trimmed) {
+    throw new Error("请输入接口域名。");
+  }
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withProtocol.replace(/\/+$/, "");
+}
+
+function buildApiBase(domain: string): string {
+  const normalized = normalizeDomain(domain);
+  return normalized.endsWith(API_PUBLIC_PATH)
+    ? normalized
+    : `${normalized}${API_PUBLIC_PATH}`;
+}
+
+async function requestApi<T>(
+  path: string,
+  body: unknown,
+  config: ApiConfig,
+): Promise<T> {
+  const token = config.token.trim();
+  if (!token) {
+    throw new Error("请输入 Token。");
+  }
+
+  const response = await fetch(`${buildApiBase(config.domain)}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: token,
+    },
+    body: JSON.stringify(body),
+  });
+
+  let data: unknown = null;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`接口返回了无法解析的响应，状态码 ${response.status}。`);
+  }
+
+  const result = data as { code?: number; data?: T; message?: string };
+  if (!response.ok) {
+    throw new Error(result.message || `请求失败，状态码 ${response.status}。`);
+  }
+
+  if (result.code !== 200) {
+    throw new Error(result.message || "接口请求失败。");
+  }
+
+  return result.data as T;
+}
 
 export const mailService = {
-  fetchEmails: async (toEmail: string, token: string = AUTH_TOKEN): Promise<Email[]> => {
-    if (isTauri()) {
-      return await invoke<Email[]>("fetch_emails", { toEmail });
-    } else {
-      const response = await fetch(`${API_BASE_URL}/emailList`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token,
-        },
-        body: JSON.stringify({ toEmail }),
-      });
-      const data = await response.json();
-      if (data.code === 200) {
-        return data.data || [];
-      } else {
-        throw new Error(data.message || "Failed to fetch emails");
-      }
-    }
+  fetchEmails: async (toEmail: string, config: ApiConfig): Promise<Email[]> => {
+    const result = await requestApi<Email[]>("/emailList", { toEmail }, config);
+    return result || [];
   },
 
-  addUsers: async (users: User[], token: string = AUTH_TOKEN): Promise<void> => {
-    if (isTauri()) {
-      await invoke("add_users", {
-        users: users,
-      });
-    } else {
-      const requestBody = { list: users };
-      console.log("Adding users with body:", JSON.stringify(requestBody, null, 2));
-      
-      const response = await fetch(`${API_BASE_URL}/addUser`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token,
-        },
-        body: JSON.stringify(requestBody),
-      });
-      const data = await response.json();
-      if (data.code !== 200) {
-        throw new Error(data.message || "Failed to add users");
-      }
-    }
+  addUsers: async (users: User[], config: ApiConfig): Promise<void> => {
+    const requestBody = { list: users };
+    await requestApi("/addUser", requestBody, config);
   },
 };
