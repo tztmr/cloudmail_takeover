@@ -147,6 +147,8 @@ function App() {
   const [parsedUsers, setParsedUsers] = useState<User[]>([]);
   const [addUserStatus, setAddUserStatus] = useState("");
   const [isAddingUsers, setIsAddingUsers] = useState(false);
+  const [pendingImportConfigs, setPendingImportConfigs] = useState<ApiConfig[]>([]);
+  const [pendingImportFileName, setPendingImportFileName] = useState("");
 
   const activeConfig = useMemo(
     () => apiConfigs.find((config) => config.id === activeConfigId) || apiConfigs[0],
@@ -274,6 +276,26 @@ function App() {
     configImportInputRef.current?.click();
   }
 
+  function clearPendingImport() {
+    setPendingImportConfigs([]);
+    setPendingImportFileName("");
+    if (configImportInputRef.current) {
+      configImportInputRef.current.value = "";
+    }
+  }
+
+  function confirmImportConfigs() {
+    if (pendingImportConfigs.length === 0) {
+      setFetchStatus("当前没有可确认导入的接口配置。");
+      return;
+    }
+
+    setApiConfigs(pendingImportConfigs);
+    setActiveConfigId(pendingImportConfigs[0]?.id || "");
+    setFetchStatus(`已成功导入 ${pendingImportConfigs.length} 个接口配置。`);
+    clearPendingImport();
+  }
+
   async function handleImportConfigs(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
@@ -288,14 +310,9 @@ function App() {
         return;
       }
 
-      const shouldReplace = window.confirm(`确认导入并覆盖当前本地配置吗？共 ${importedConfigs.length} 条。`);
-      if (!shouldReplace) {
-        return;
-      }
-
-      setApiConfigs(importedConfigs);
-      setActiveConfigId(importedConfigs[0]?.id || "");
-      setFetchStatus(`已成功导入 ${importedConfigs.length} 个接口配置。`);
+      setPendingImportConfigs(importedConfigs);
+      setPendingImportFileName(file.name);
+      setFetchStatus(`已读取 ${importedConfigs.length} 个接口配置，请先预览再确认导入。`);
     } catch (error) {
       console.error(error);
       setFetchStatus("导入失败：请选择有效的 JSON 配置文件。");
@@ -546,6 +563,37 @@ function App() {
                   style={{ display: "none" }}
                 />
               </div>
+
+              {pendingImportConfigs.length > 0 && (
+                <div className="config-import-preview">
+                  <div className="config-import-preview-header">
+                    <div>
+                      <h3>导入预览</h3>
+                      <p>
+                        文件: {pendingImportFileName || "未命名文件"}，共 {pendingImportConfigs.length} 条配置。
+                      </p>
+                    </div>
+                    <div className="action-buttons">
+                      <button className="primary-btn" onClick={confirmImportConfigs}>
+                        确认覆盖导入
+                      </button>
+                      <button className="secondary-btn" onClick={clearPendingImport}>
+                        取消导入
+                      </button>
+                    </div>
+                  </div>
+                  <div className="config-import-preview-list">
+                    {pendingImportConfigs.map((config, index) => (
+                      <div key={config.id} className="config-import-preview-item">
+                        <strong>{config.name || `配置 ${index + 1}`}</strong>
+                        <span>接口域名: {config.domain || "未填写"}</span>
+                        <span>Token: {config.token ? "已填写" : "未填写"}</span>
+                        <span>生成域名: {config.emailDomain || "跟随接口域名解析"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {activeConfig ? (
                 <div className="config-grid">

@@ -150,6 +150,56 @@ body {
   padding: 1rem;
 }
 
+.config-import-preview {
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: #f9fafb;
+  padding: 1rem;
+}
+
+.config-import-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.config-import-preview-header h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.config-import-preview-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.config-import-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.config-import-preview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.config-import-preview-item strong {
+  color: var(--text-main);
+}
+
 /* Tabs */
 .tabs {
   display: flex;
@@ -457,6 +507,7 @@ button {
 
   .app-header,
   .config-card-header,
+  .config-import-preview-header,
   .search-container,
   .search-bar,
   .input-group {
