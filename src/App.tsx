@@ -109,6 +109,19 @@ function getEffectiveEmailDomain(config?: ApiConfig): string {
   return getParsedEmailDomainFromApiDomain(config.domain);
 }
 
+function parseImportedConfigs(payload: unknown): ApiConfig[] {
+  if (Array.isArray(payload)) {
+    return sanitizeConfigs(payload);
+  }
+
+  if (payload && typeof payload === "object" && Array.isArray((payload as { configs?: unknown }).configs)) {
+    return sanitizeConfigs((payload as { configs: unknown[] }).configs);
+  }
+
+  return [];
+}
+
+
 function App() {
   const initialConfigs = loadInitialConfigs();
   const [apiConfigs, setApiConfigs] = useState<ApiConfig[]>(() => initialConfigs);
@@ -120,6 +133,7 @@ function App() {
   );
   const [activeTab, setActiveTab] = useState<"fetch" | "add">("fetch");
   const emailInputRef = useRef<HTMLInputElement | null>(null);
+  const configImportInputRef = useRef<HTMLInputElement | null>(null);
 
   // Fetch Email State
   const [toEmail, setToEmail] = useState("");
@@ -237,6 +251,59 @@ function App() {
         config.id === configId ? { ...config, ...patch } : config,
       ),
     );
+  }
+
+  function handleExportConfigs() {
+    if (apiConfigs.length === 0) {
+      setFetchStatus("当前没有可导出的接口配置。");
+      return;
+    }
+
+    const content = JSON.stringify(apiConfigs, null, 2);
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cloudmail-configs-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setFetchStatus(`已导出 ${apiConfigs.length} 个接口配置。`);
+  }
+
+  function handleImportConfigsClick() {
+    configImportInputRef.current?.click();
+  }
+
+  async function handleImportConfigs(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const importedConfigs = parseImportedConfigs(JSON.parse(text));
+      if (importedConfigs.length === 0) {
+        setFetchStatus("导入失败：文件中没有有效的接口配置。");
+        return;
+      }
+
+      const shouldReplace = window.confirm(`确认导入并覆盖当前本地配置吗？共 ${importedConfigs.length} 条。`);
+      if (!shouldReplace) {
+        return;
+      }
+
+      setApiConfigs(importedConfigs);
+      setActiveConfigId(importedConfigs[0]?.id || "");
+      setFetchStatus(`已成功导入 ${importedConfigs.length} 个接口配置。`);
+    } catch (error) {
+      console.error(error);
+      setFetchStatus("导入失败：请选择有效的 JSON 配置文件。");
+    } finally {
+      if (configImportInputRef.current) {
+        configImportInputRef.current.value = "";
+      }
+    }
   }
 
   function addConfig() {
@@ -461,6 +528,23 @@ function App() {
                 <button className="secondary-btn" onClick={removeActiveConfig}>
                   删除当前
                 </button>
+                <button
+                  className="secondary-btn"
+                  onClick={handleExportConfigs}
+                  disabled={apiConfigs.length === 0}
+                >
+                  导出配置
+                </button>
+                <button className="secondary-btn" onClick={handleImportConfigsClick}>
+                  导入配置
+                </button>
+                <input
+                  ref={configImportInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={handleImportConfigs}
+                  style={{ display: "none" }}
+                />
               </div>
 
               {activeConfig ? (
