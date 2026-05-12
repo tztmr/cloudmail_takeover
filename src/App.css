@@ -126,6 +126,11 @@ body {
   color: var(--text-secondary);
 }
 
+.field-helper-text {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
 .field-wide {
   grid-column: 1 / -1;
 }
@@ -266,6 +271,19 @@ body {
   display: flex;
   gap: 1rem;
   margin-bottom: 1.5rem;
+}
+
+.query-match-hint {
+  margin: -0.75rem 0 1rem;
+  font-size: 0.9rem;
+}
+
+.query-match-hint.matched {
+  color: #047857;
+}
+
+.query-match-hint.fallback {
+  color: #b45309;
 }
 
 .search-container {

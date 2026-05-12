@@ -90,8 +90,18 @@ function getParsedEmailDomainFromApiDomain(domain?: string): string {
 
   try {
     const url = new URL(domain.startsWith("http") ? domain : `https://${domain}`);
-    // Remove 'mail.' prefix if it exists, as often the email domain is just the base domain
-    return url.hostname.replace(/^mail\./, "");
+    const hostname = url.hostname.toLowerCase();
+
+    if (hostname === "localhost" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+      return hostname;
+    }
+
+    const labels = hostname.split(".").filter(Boolean);
+    if (labels.length >= 3) {
+      return labels.slice(-2).join(".");
+    }
+
+    return hostname;
   } catch {
     return "";
   }
@@ -107,6 +117,16 @@ function getEffectiveEmailDomain(config?: ApiConfig): string {
   }
 
   return getParsedEmailDomainFromApiDomain(config.domain);
+}
+
+function getEmailDomainFromAddress(email: string): string {
+  const normalized = email.trim().toLowerCase();
+  const atIndex = normalized.lastIndexOf("@");
+  if (atIndex === -1 || atIndex === normalized.length - 1) {
+    return "";
+  }
+
+  return normalized.slice(atIndex + 1);
 }
 
 function parseImportedConfigs(payload: unknown): ApiConfig[] {
@@ -364,6 +384,24 @@ function App() {
     setActiveConfigId(nextConfigs[0].id);
   }
 
+  function resolveQueryConfig(targetEmail: string): ApiConfig | undefined {
+    const emailDomain = getEmailDomainFromAddress(targetEmail);
+    if (!emailDomain) {
+      return activeConfig;
+    }
+
+    const matchedConfig = apiConfigs.find(
+      (config) => getEffectiveEmailDomain(config).toLowerCase() === emailDomain,
+    );
+
+    return matchedConfig || activeConfig;
+  }
+
+  const queryEmailDomain = getEmailDomainFromAddress(toEmail);
+  const matchedQueryConfig = queryEmailDomain
+    ? apiConfigs.find((config) => getEffectiveEmailDomain(config).toLowerCase() === queryEmailDomain)
+    : undefined;
+
   async function fetchEmails(emailToFetch?: string | unknown) {
     const targetEmail = typeof emailToFetch === "string" ? emailToFetch : toEmail;
 
@@ -372,17 +410,34 @@ function App() {
       return;
     }
 
-    if (!activeConfig) {
+    const queryConfig = resolveQueryConfig(targetEmail);
+    if (!queryConfig) {
       setFetchStatus("请先配置接口域名和 Token。");
       return;
     }
 
-    setFetchStatus("获取中...");
+    if (queryConfig.id !== activeConfig?.id) {
+      setActiveConfigId(queryConfig.id);
+    }
+
+    const matchedDomain = getEmailDomainFromAddress(targetEmail);
+    const queryConfigDomain = getEffectiveEmailDomain(queryConfig).toLowerCase();
+    const usedAutoMatchedConfig = Boolean(matchedDomain && matchedDomain === queryConfigDomain);
+
+    setFetchStatus(
+      usedAutoMatchedConfig
+        ? `已自动匹配配置 ${queryConfig.name}，正在获取...`
+        : "获取中...",
+    );
     setIsLoadingFetch(true);
     try {
-      const result = await mailService.fetchEmails(targetEmail, activeConfig);
+      const result = await mailService.fetchEmails(targetEmail, queryConfig);
       setEmails(result);
-      setFetchStatus(`配置 ${activeConfig.name} 查询成功，找到 ${result.length} 封邮件。`);
+      setFetchStatus(
+        usedAutoMatchedConfig
+          ? `已自动匹配配置 ${queryConfig.name} 查询成功，找到 ${result.length} 封邮件。`
+          : `配置 ${queryConfig.name} 查询成功，找到 ${result.length} 封邮件。`,
+      );
     } catch (error) {
       console.error(error);
       setFetchStatus(`错误: ${error}`);
@@ -589,6 +644,7 @@ function App() {
                         <span>接口域名: {config.domain || "未填写"}</span>
                         <span>Token: {config.token ? "已填写" : "未填写"}</span>
                         <span>生成域名: {config.emailDomain || "跟随接口域名解析"}</span>
+                        <span>实际匹配域名: {getEffectiveEmailDomain(config) || "未解析"}</span>
                       </div>
                     ))}
                   </div>
@@ -632,6 +688,9 @@ function App() {
                       onChange={(e) => updateConfig(activeConfig.id, { emailDomain: e.target.value })}
                       placeholder="会跟随接口域名自动解析"
                     />
+                    <small className="field-helper-text">
+                      实际匹配域名: {effectiveEmailDomain || "未解析"}
+                    </small>
                   </label>
                 </div>
               ) : (
@@ -644,6 +703,7 @@ function App() {
                   <span>当前配置: {activeConfig.name}</span>
                   <span>域名: {activeConfig.domain || "未填写"}</span>
                   <span>Token: {activeConfig.token ? "已填写" : "未填写"}</span>
+                  <span>匹配域名: {effectiveEmailDomain || "未解析"}</span>
                   <span>生成后缀: {effectiveEmailDomain ? `@${effectiveEmailDomain}` : "未配置"}</span>
                 </div>
             ) : (
@@ -696,6 +756,13 @@ function App() {
                       {isLoadingFetch ? "查询中..." : "查询"}
                     </button>
                   </div>
+                  {toEmail && queryEmailDomain && (
+                    <div className={`query-match-hint ${matchedQueryConfig ? "matched" : "fallback"}`}>
+                      {matchedQueryConfig
+                        ? `将自动使用配置: ${matchedQueryConfig.name} (${getEffectiveEmailDomain(matchedQueryConfig)})`
+                        : `未找到匹配配置，将使用当前配置: ${activeConfig?.name || "未选择"}`}
+                    </div>
+                  )}
                   {fetchStatus && (
                     <div className={`status-msg ${fetchStatus.includes("错误") ? "error" : "info"}`}>
                       {fetchStatus}
