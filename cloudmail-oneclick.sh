@@ -230,6 +230,33 @@ install_certbot_if_needed() {
   ok "Certbot 安装完成"
 }
 
+ensure_certbot_auto_renew() {
+  info "检查 Certbot 自动续期配置"
+
+  if command_exists systemctl && run_root systemctl list-unit-files certbot.timer >/dev/null 2>&1; then
+    run_root systemctl enable certbot.timer >/dev/null 2>&1 || true
+    run_root systemctl start certbot.timer >/dev/null 2>&1 || true
+    ok "已启用 certbot.timer 自动续期"
+    return 0
+  fi
+
+  local cron_line="17 3 * * * certbot renew --quiet --deploy-hook 'nginx -s reload'"
+  if command_exists crontab; then
+    local current_cron
+    current_cron="$(run_root crontab -l 2>/dev/null || true)"
+    if ! printf '%s\n' "$current_cron" | grep -Fq "certbot renew --quiet"; then
+      printf '%s\n%s\n' "$current_cron" "$cron_line" | run_root crontab -
+      ok "已写入 Certbot 自动续期 cron 任务"
+    else
+      ok "已存在 Certbot 自动续期 cron 任务"
+    fi
+    return 0
+  fi
+
+  warn "未找到 systemd timer 或 crontab，未能自动配置续期"
+  warn "请手动添加 certbot renew --quiet --deploy-hook 'nginx -s reload'"
+}
+
 docker_ready() {
   if ! command_exists docker; then
     return 1
@@ -328,6 +355,10 @@ detect_nginx_conf_file() {
 
 enable_nginx_conf_if_needed() {
   local conf_file="$1"
+  if [[ "$conf_file" == /etc/nginx/conf.d/* ]]; then
+    run_root rm -f "/etc/nginx/sites-enabled/$(basename "$conf_file")" 2>/dev/null || true
+    return 0
+  fi
   if [[ -d /etc/nginx/sites-enabled ]]; then
     run_root ln -sf "$conf_file" "/etc/nginx/sites-enabled/$(basename "$conf_file")"
   fi
@@ -580,6 +611,7 @@ setup_ssl() {
   load_env
   install_nginx_if_needed
   install_certbot_if_needed
+  ensure_certbot_auto_renew
 
   local domain email host_port conf_file
   domain="$(prompt_default "绑定域名（必须已解析到当前服务器）" "${CLOUDMAIL_DOMAIN:-}")"

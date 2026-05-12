@@ -47,3 +47,4 @@ bash ./cloudmail-oneclick.sh ssl
 - 服务器 `80` 和 `443` 可访问
 - 脚本会自动安装宿主机 `Nginx` 和 `Certbot`
 - 证书申请成功后，宿主机 `Nginx` 会接管 `80/443`，再反向代理到容器映射端口
+- 脚本会优先启用 `certbot.timer` 自动续期；如果系统没有 timer，则自动写入 `cron` 续期任务
