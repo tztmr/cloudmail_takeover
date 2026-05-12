@@ -182,6 +182,54 @@ install_git_if_needed() {
   ok "Git 安装完成"
 }
 
+install_nginx_if_needed() {
+  command_exists nginx && return 0
+  info "检测到未安装 Nginx，开始自动安装"
+  case "$(detect_pkg_manager)" in
+    apt)
+      run_root apt-get update -y -qq
+      run_root apt-get install -y -qq nginx
+      ;;
+    dnf)
+      run_root dnf install -y -q nginx
+      ;;
+    yum)
+      run_root yum install -y -q nginx
+      ;;
+    *)
+      error "当前系统无法自动安装 Nginx，请先手动安装"
+      exit 1
+      ;;
+  esac
+  if command_exists systemctl; then
+    run_root systemctl enable nginx >/dev/null 2>&1 || true
+    run_root systemctl start nginx >/dev/null 2>&1 || true
+  fi
+  ok "Nginx 安装完成"
+}
+
+install_certbot_if_needed() {
+  command_exists certbot && return 0
+  info "检测到未安装 Certbot，开始自动安装"
+  case "$(detect_pkg_manager)" in
+    apt)
+      run_root apt-get update -y -qq
+      run_root apt-get install -y -qq certbot python3-certbot-nginx
+      ;;
+    dnf)
+      run_root dnf install -y -q certbot python3-certbot-nginx || run_root dnf install -y -q certbot-nginx
+      ;;
+    yum)
+      run_root yum install -y -q certbot python3-certbot-nginx || run_root yum install -y -q certbot-nginx
+      ;;
+    *)
+      error "当前系统无法自动安装 Certbot，请先手动安装"
+      exit 1
+      ;;
+  esac
+  ok "Certbot 安装完成"
+}
+
 docker_ready() {
   if ! command_exists docker; then
     return 1
@@ -263,6 +311,59 @@ allow_firewall_port() {
   fi
 }
 
+nginx_conf_dir() {
+  if [[ -d /etc/nginx/conf.d ]]; then
+    printf '/etc/nginx/conf.d'
+  else
+    printf '/etc/nginx/sites-available'
+  fi
+}
+
+detect_nginx_conf_file() {
+  local domain="$1"
+  local conf_dir
+  conf_dir="$(nginx_conf_dir)"
+  printf '%s/%s.conf' "$conf_dir" "$domain"
+}
+
+enable_nginx_conf_if_needed() {
+  local conf_file="$1"
+  if [[ -d /etc/nginx/sites-enabled ]]; then
+    run_root ln -sf "$conf_file" "/etc/nginx/sites-enabled/$(basename "$conf_file")"
+  fi
+}
+
+reload_nginx() {
+  run_root nginx -t
+  if command_exists systemctl; then
+    run_root systemctl reload nginx 2>/dev/null || run_root nginx -s reload
+  else
+    run_root nginx -s reload
+  fi
+}
+
+write_nginx_http_proxy_conf() {
+  local conf_file="$1" domain="$2" host_port="$3"
+  local tmp_file
+  tmp_file="$(mktemp)"
+  cat > "$tmp_file" <<EOF
+server {
+    listen 80;
+    server_name ${domain};
+
+    location / {
+        proxy_pass http://127.0.0.1:${host_port};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+  run_root install -m 0644 "$tmp_file" "$conf_file"
+  rm -f "$tmp_file"
+}
+
 write_env_file() {
   local bind_ip="$1" host_port="$2" domain="$3" container_name="$4" image_name="$5"
   cat > "$ENV_FILE" <<EOF
@@ -273,6 +374,16 @@ CLOUDMAIL_DOMAIN=${domain}
 CLOUDMAIL_CONTAINER_NAME=${container_name}
 CLOUDMAIL_IMAGE_NAME=${image_name}
 EOF
+}
+
+persist_current_env() {
+  load_env
+  write_env_file \
+    "${CLOUDMAIL_BIND_IP}" \
+    "${CLOUDMAIL_HOST_PORT}" \
+    "${1:-${CLOUDMAIL_DOMAIN:-}}" \
+    "${CLOUDMAIL_CONTAINER_NAME}" \
+    "${CLOUDMAIL_IMAGE_NAME}"
 }
 
 print_proxy_hint() {
@@ -459,6 +570,51 @@ uninstall_app() {
   fi
 }
 
+setup_ssl() {
+  resolve_project_dir || {
+    error "未找到项目目录，请先执行一键部署"
+    exit 1
+  }
+  install_docker_if_needed
+  ensure_compose_available
+  load_env
+  install_nginx_if_needed
+  install_certbot_if_needed
+
+  local domain email host_port conf_file
+  domain="$(prompt_default "绑定域名（必须已解析到当前服务器）" "${CLOUDMAIL_DOMAIN:-}")"
+  [[ -n "$domain" ]] || {
+    error "域名不能为空"
+    exit 1
+  }
+  email="$(prompt_default "证书邮箱" "admin@${domain}")"
+  host_port="${CLOUDMAIL_HOST_PORT}"
+  conf_file="$(detect_nginx_conf_file "$domain")"
+
+  if port_in_use 80 && ! command_exists nginx; then
+    warn "检测到 80 端口已被占用，自动签发证书可能失败"
+  fi
+
+  write_nginx_http_proxy_conf "$conf_file" "$domain" "$host_port"
+  enable_nginx_conf_if_needed "$conf_file"
+  reload_nginx
+
+  allow_firewall_port 80
+  allow_firewall_port 443
+
+  info "开始为 ${domain} 申请 HTTPS 证书"
+  run_root certbot --nginx -d "$domain" --redirect -m "$email" --agree-tos --non-interactive
+
+  persist_current_env "$domain"
+
+  echo
+  ok "HTTPS 已配置完成"
+  echo "访问地址: https://${domain}"
+  echo "Nginx 配置: ${conf_file}"
+  echo "证书目录: /etc/letsencrypt/live/${domain}"
+  echo
+}
+
 deploy() {
   prepare_project_dir_for_deploy
   require_project_files
@@ -527,7 +683,8 @@ print_menu() {
   echo "7) 重新构建"
   echo "8) 拉取代码并更新"
   echo "9) 输出 443 反代配置示例"
-  echo "10) 卸载"
+  echo "10) 申请 SSL 证书"
+  echo "11) 卸载"
   echo "0) 退出"
   echo "================================================="
 }
@@ -535,7 +692,7 @@ print_menu() {
 interactive_main() {
   while true; do
     print_menu
-    printf '请选择 [0-10]: ' >&2
+    printf '请选择 [0-11]: ' >&2
     read -r choice
     choice="$(trim "$choice")"
     case "$choice" in
@@ -551,7 +708,8 @@ interactive_main() {
         load_env
         print_proxy_hint "${CLOUDMAIL_DOMAIN:-}" "${CLOUDMAIL_HOST_PORT}"
         ;;
-      10) uninstall_app ;;
+      10) setup_ssl ;;
+      11) uninstall_app ;;
       0) exit 0 ;;
       *) warn "无效选项" ;;
     esac
@@ -568,6 +726,7 @@ main() {
     restart) restart_app ;;
     rebuild) rebuild_app ;;
     update) update_app ;;
+    ssl) setup_ssl ;;
     proxy)
       load_env
       print_proxy_hint "${CLOUDMAIL_DOMAIN:-}" "${CLOUDMAIL_HOST_PORT}"
@@ -576,7 +735,7 @@ main() {
     "") interactive_main ;;
     *)
       error "不支持的命令: $1"
-      echo "可用命令: deploy | status | logs | start | stop | restart | rebuild | update | proxy | uninstall"
+      echo "可用命令: deploy | status | logs | start | stop | restart | rebuild | update | ssl | proxy | uninstall"
       exit 1
       ;;
   esac

@@ -22,7 +22,7 @@ npm run dev
 
 仓库根目录提供了一个脚本：
 
-- `cloudmail-oneclick.sh`：首次部署和后续管理都用它，支持部署、查看状态、日志、重建、更新和卸载
+- `cloudmail-oneclick.sh`：首次部署和后续管理都用它，支持部署、查看状态、日志、重建、更新、申请 SSL 证书和卸载
 
 ```bash
 chmod +x ./cloudmail-oneclick.sh
@@ -38,4 +38,12 @@ bash ./cloudmail-oneclick.sh
 bash ./cloudmail-oneclick.sh status
 bash ./cloudmail-oneclick.sh logs
 bash ./cloudmail-oneclick.sh rebuild
+bash ./cloudmail-oneclick.sh ssl
 ```
+
+申请证书前提：
+
+- 域名已经解析到当前服务器公网 IP
+- 服务器 `80` 和 `443` 可访问
+- 脚本会自动安装宿主机 `Nginx` 和 `Certbot`
+- 证书申请成功后，宿主机 `Nginx` 会接管 `80/443`，再反向代理到容器映射端口
