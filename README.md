@@ -17,3 +17,12 @@ npm run dev
 - 支持批量生成并添加用户
 - 支持多域名、多 Token 配置切换
 - 请求体格式保持不变，只切换目标域名和 `Authorization` Token
+
+## Linux 一键部署
+
+仓库根目录提供了 `cloudmail-oneclick.sh`，适合在 Linux 服务器上一键拉取代码、安装 Node/Nginx、构建前端并发布静态站点。
+
+```bash
+chmod +x ./cloudmail-oneclick.sh
+bash ./cloudmail-oneclick.sh
+```
