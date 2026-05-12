@@ -18,11 +18,24 @@ npm run dev
 - 支持多域名、多 Token 配置切换
 - 请求体格式保持不变，只切换目标域名和 `Authorization` Token
 
-## Linux 一键部署
+## Docker 一键部署
 
-仓库根目录提供了 `cloudmail-oneclick.sh`，适合在 Linux 服务器上一键拉取代码、安装 Node/Nginx、构建前端并发布静态站点。
+仓库根目录提供了一个脚本：
+
+- `cloudmail-oneclick.sh`：首次部署和后续管理都用它，支持部署、查看状态、日志、重建、更新和卸载
 
 ```bash
 chmod +x ./cloudmail-oneclick.sh
 bash ./cloudmail-oneclick.sh
+```
+
+默认策略是把容器映射到 `127.0.0.1:18080`，这样不会直接占用宿主机 `443`。如果同一台服务器上已经有 Nginx、Caddy 或宝塔在处理 HTTPS，只需要把现有 `443` 反向代理到本机这个端口即可。
+
+常用管理命令：
+
+```bash
+bash ./cloudmail-oneclick.sh
+bash ./cloudmail-oneclick.sh status
+bash ./cloudmail-oneclick.sh logs
+bash ./cloudmail-oneclick.sh rebuild
 ```

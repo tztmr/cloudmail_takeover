@@ -1,0 +1,10 @@
+services:
+  cloudmail-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${CLOUDMAIL_IMAGE_NAME:-cloudmail-web:local}
+    container_name: ${CLOUDMAIL_CONTAINER_NAME:-cloudmail-web}
+    restart: unless-stopped
+    ports:
+      - "${CLOUDMAIL_BIND_IP:-127.0.0.1}:${CLOUDMAIL_HOST_PORT:-18080}:80"
