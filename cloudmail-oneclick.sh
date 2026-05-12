@@ -15,7 +15,13 @@ ok() { printf "${G}[OK]${NC} %s\n" "$1"; }
 
 APP_NAME="cloudmail-web"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${SCRIPT_DIR}/.env.docker"
+PROJECT_DIR="$SCRIPT_DIR"
+ENV_FILE="${PROJECT_DIR}/.env.docker"
+STATE_DIR="${HOME}/.cloudmail-oneclick"
+STATE_FILE="${STATE_DIR}/state.env"
+DEFAULT_REPO_URL="https://github.com/tztmr/takeover_cloudmail.git"
+DEFAULT_BRANCH="main"
+DEFAULT_INSTALL_DIR="/opt/cloudmail"
 DEFAULT_BIND_IP="127.0.0.1"
 DEFAULT_HOST_PORT="18080"
 DEFAULT_CONTAINER_NAME="cloudmail-web"
@@ -30,6 +36,36 @@ trim() {
 }
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
+
+set_project_dir() {
+  PROJECT_DIR="$1"
+  ENV_FILE="${PROJECT_DIR}/.env.docker"
+}
+
+ensure_state_dir() {
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR" 2>/dev/null || true
+}
+
+save_state() {
+  local project_dir="$1" repo_url="$2" branch="$3"
+  ensure_state_dir
+  cat > "$STATE_FILE" <<EOF
+PROJECT_DIR='${project_dir}'
+REPO_URL='${repo_url}'
+BRANCH='${branch}'
+EOF
+  chmod 600 "$STATE_FILE" 2>/dev/null || true
+}
+
+load_state() {
+  [[ -f "$STATE_FILE" ]] || return 1
+  set +u
+  # shellcheck disable=SC1090
+  source "$STATE_FILE"
+  set -u
+  [[ -n "${PROJECT_DIR:-}" ]]
+}
 
 run_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
@@ -75,10 +111,10 @@ ask_yes_no() {
 
 require_project_files() {
   local required_files=(
-    "${SCRIPT_DIR}/package.json"
-    "${SCRIPT_DIR}/Dockerfile"
-    "${SCRIPT_DIR}/docker-compose.yml"
-    "${SCRIPT_DIR}/nginx/default.conf"
+    "${PROJECT_DIR}/package.json"
+    "${PROJECT_DIR}/Dockerfile"
+    "${PROJECT_DIR}/docker-compose.yml"
+    "${PROJECT_DIR}/nginx/default.conf"
   )
   local file=""
   for file in "${required_files[@]}"; do
@@ -88,6 +124,25 @@ require_project_files() {
       exit 1
     }
   done
+}
+
+project_files_exist() {
+  [[ -f "${1}/package.json" ]] &&
+  [[ -f "${1}/Dockerfile" ]] &&
+  [[ -f "${1}/docker-compose.yml" ]] &&
+  [[ -f "${1}/nginx/default.conf" ]]
+}
+
+detect_pkg_manager() {
+  if command_exists apt-get; then
+    printf 'apt'
+  elif command_exists dnf; then
+    printf 'dnf'
+  elif command_exists yum; then
+    printf 'yum'
+  else
+    printf ''
+  fi
 }
 
 install_curl_if_needed() {
@@ -103,6 +158,28 @@ install_curl_if_needed() {
     error "当前系统无法自动安装 curl，请先手动安装"
     exit 1
   fi
+}
+
+install_git_if_needed() {
+  command_exists git && return 0
+  info "检测到未安装 Git，开始自动安装"
+  case "$(detect_pkg_manager)" in
+    apt)
+      run_root apt-get update -y -qq
+      run_root apt-get install -y -qq git
+      ;;
+    dnf)
+      run_root dnf install -y -q git
+      ;;
+    yum)
+      run_root yum install -y -q git
+      ;;
+    *)
+      error "当前系统无法自动安装 Git，请先手动安装"
+      exit 1
+      ;;
+  esac
+  ok "Git 安装完成"
 }
 
 docker_ready() {
@@ -144,7 +221,7 @@ docker_cmd() {
 }
 
 compose_cmd() {
-  docker_cmd compose "$@"
+  docker_cmd compose --project-directory "$PROJECT_DIR" -f "${PROJECT_DIR}/docker-compose.yml" "$@"
 }
 
 ensure_compose_available() {
@@ -155,6 +232,7 @@ ensure_compose_available() {
 
 ensure_executable_scripts() {
   chmod +x "${SCRIPT_DIR}/cloudmail-oneclick.sh" 2>/dev/null || true
+  chmod +x "${PROJECT_DIR}/cloudmail-oneclick.sh" 2>/dev/null || true
 }
 
 validate_port() {
@@ -188,6 +266,7 @@ allow_firewall_port() {
 write_env_file() {
   local bind_ip="$1" host_port="$2" domain="$3" container_name="$4" image_name="$5"
   cat > "$ENV_FILE" <<EOF
+CLOUDMAIL_PROJECT_DIR=${PROJECT_DIR}
 CLOUDMAIL_BIND_IP=${bind_ip}
 CLOUDMAIL_HOST_PORT=${host_port}
 CLOUDMAIL_DOMAIN=${domain}
@@ -229,20 +308,73 @@ require_env_file() {
   }
 }
 
+resolve_project_dir() {
+  if project_files_exist "$SCRIPT_DIR"; then
+    set_project_dir "$SCRIPT_DIR"
+    return 0
+  fi
+
+  if load_state && project_files_exist "$PROJECT_DIR"; then
+    set_project_dir "$PROJECT_DIR"
+    return 0
+  fi
+
+  return 1
+}
+
 load_env() {
+  resolve_project_dir || true
   require_env_file
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
+  if [[ -n "${CLOUDMAIL_PROJECT_DIR:-}" ]] && project_files_exist "${CLOUDMAIL_PROJECT_DIR}"; then
+    set_project_dir "${CLOUDMAIL_PROJECT_DIR}"
+  fi
+}
+
+clone_or_update_repo() {
+  local repo_url="$1" branch="$2" install_dir="$3"
+  if [[ -d "${install_dir}/.git" ]]; then
+    info "检测到已有项目目录，开始更新代码"
+    git -C "$install_dir" fetch origin "$branch" || git -C "$install_dir" fetch --all
+    git -C "$install_dir" checkout "$branch"
+    git -C "$install_dir" pull --ff-only origin "$branch" || true
+  else
+    run_root mkdir -p "$(dirname "$install_dir")"
+    git clone --branch "$branch" "$repo_url" "$install_dir"
+  fi
+}
+
+prepare_project_dir_for_deploy() {
+  if project_files_exist "$SCRIPT_DIR"; then
+    set_project_dir "$SCRIPT_DIR"
+    return 0
+  fi
+
+  local install_dir repo_url branch
+  install_dir="$(prompt_default "项目部署目录" "$DEFAULT_INSTALL_DIR")"
+  repo_url="$(prompt_default "Git 仓库地址" "$DEFAULT_REPO_URL")"
+  branch="$(prompt_default "分支名" "$DEFAULT_BRANCH")"
+
+  install_git_if_needed
+  clone_or_update_repo "$repo_url" "$branch" "$install_dir"
+  set_project_dir "$install_dir"
+  require_project_files
+  save_state "$PROJECT_DIR" "$repo_url" "$branch"
 }
 
 status_app() {
+  resolve_project_dir || {
+    error "未找到项目目录，请先执行一键部署"
+    exit 1
+  }
   install_docker_if_needed
   ensure_compose_available
   load_env
 
-  echo "项目目录: ${SCRIPT_DIR}"
+  echo "项目目录: ${PROJECT_DIR}"
   echo "容器名称: ${CLOUDMAIL_CONTAINER_NAME}"
   echo "镜像名称: ${CLOUDMAIL_IMAGE_NAME}"
   echo "绑定地址: ${CLOUDMAIL_BIND_IP}"
@@ -295,18 +427,22 @@ rebuild_app() {
 }
 
 update_app() {
+  resolve_project_dir || {
+    error "未找到项目目录，请先执行一键部署"
+    exit 1
+  }
   require_project_files
   install_docker_if_needed
   ensure_compose_available
   require_env_file
 
-  if [[ ! -d "${SCRIPT_DIR}/.git" ]]; then
+  if [[ ! -d "${PROJECT_DIR}/.git" ]]; then
     error "当前目录不是 Git 仓库，无法自动拉取更新"
     exit 1
   fi
 
   info "拉取最新代码"
-  git -C "$SCRIPT_DIR" pull --ff-only
+  git -C "$PROJECT_DIR" pull --ff-only
   rebuild_app
 }
 
@@ -324,6 +460,7 @@ uninstall_app() {
 }
 
 deploy() {
+  prepare_project_dir_for_deploy
   require_project_files
   install_docker_if_needed
   ensure_compose_available
@@ -364,7 +501,7 @@ deploy() {
 
   echo
   ok "${APP_NAME} Docker 部署完成"
-  echo "项目目录: ${SCRIPT_DIR}"
+  echo "项目目录: ${PROJECT_DIR}"
   echo "容器名称: ${container_name}"
   echo "镜像名称: ${image_name}"
   echo "访问方式: http://${bind_ip}:${host_port}"
