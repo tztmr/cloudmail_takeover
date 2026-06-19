@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import "./App.css";
 import { ApiConfig, Email, User, mailService } from "./services/api";
+import { isBulkAddPasswordVerified } from "./utils/bulkAddGuard";
 
 const STORAGE_KEYS = {
   configs: "cloudmail.api.configs",
@@ -164,6 +165,8 @@ function App() {
   // Add User State
   const [accountCount, setAccountCount] = useState<number>(10);
   const [usernameLength, setUsernameLength] = useState<number>(8);
+  const [bulkAddPassword, setBulkAddPassword] = useState("");
+  const [isBulkAddVerified, setIsBulkAddVerified] = useState(false);
   const [parsedUsers, setParsedUsers] = useState<User[]>([]);
   const [addUserStatus, setAddUserStatus] = useState("");
   const [isAddingUsers, setIsAddingUsers] = useState(false);
@@ -397,11 +400,6 @@ function App() {
     return matchedConfig || activeConfig;
   }
 
-  const queryEmailDomain = getEmailDomainFromAddress(toEmail);
-  const matchedQueryConfig = queryEmailDomain
-    ? apiConfigs.find((config) => getEffectiveEmailDomain(config).toLowerCase() === queryEmailDomain)
-    : undefined;
-
   async function fetchEmails(emailToFetch?: string | unknown) {
     const targetEmail = typeof emailToFetch === "string" ? emailToFetch : toEmail;
 
@@ -536,11 +534,18 @@ function App() {
       return;
     }
 
+    if (!isBulkAddVerified) {
+      setAddUserStatus("请先输入批量添加密码并完成验证。");
+      return;
+    }
+
     setAddUserStatus("正在添加用户...");
     setIsAddingUsers(true);
     try {
       await mailService.addUsers(parsedUsers, activeConfig);
       setAddUserStatus(`配置 ${activeConfig.name} 提交成功，用户添加成功！`);
+      setBulkAddPassword("");
+      setIsBulkAddVerified(false);
       setParsedUsers([]);
     } catch (error) {
       console.error(error);
@@ -756,13 +761,6 @@ function App() {
                       {isLoadingFetch ? "查询中..." : "查询"}
                     </button>
                   </div>
-                  {toEmail && queryEmailDomain && (
-                    <div className={`query-match-hint ${matchedQueryConfig ? "matched" : "fallback"}`}>
-                      {matchedQueryConfig
-                        ? `将自动使用配置: ${matchedQueryConfig.name} (${getEffectiveEmailDomain(matchedQueryConfig)})`
-                        : `未找到匹配配置，将使用当前配置: ${activeConfig?.name || "未选择"}`}
-                    </div>
-                  )}
                   {fetchStatus && (
                     <div className={`status-msg ${fetchStatus.includes("错误") ? "error" : "info"}`}>
                       {fetchStatus}
@@ -856,6 +854,24 @@ function App() {
                     ))}
                   </select>
                 </div>
+                <div className="input-group">
+                  <label htmlFor="bulk-add-password">验证密码:</label>
+                  <input
+                    id="bulk-add-password"
+                    type="password"
+                    className="bulk-input"
+                    placeholder="输入批量添加密码"
+                    value={bulkAddPassword}
+                    onChange={(e) => {
+                      const nextPassword = e.target.value;
+                      setBulkAddPassword(nextPassword);
+                      setIsBulkAddVerified(isBulkAddPasswordVerified(nextPassword));
+                    }}
+                  />
+                  <span className="field-helper-text">
+                    {isBulkAddVerified ? "密码已自动验证，可直接提交。" : "输入 dx888 后可提交添加。"}
+                  </span>
+                </div>
                 <div className="action-buttons">
                   <button
                     className="secondary-btn"
@@ -874,7 +890,7 @@ function App() {
                   <button
                     className="primary-btn"
                     onClick={addUsers}
-                    disabled={parsedUsers.length === 0 || isAddingUsers}
+                    disabled={parsedUsers.length === 0 || isAddingUsers || !isBulkAddVerified}
                   >
                     {isAddingUsers ? "添加中..." : "3. 提交添加"}
                   </button>
