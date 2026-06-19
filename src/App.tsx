@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import "./App.css";
 import { ApiConfig, Email, User, mailService } from "./services/api";
-import { isBulkAddPasswordVerified } from "./utils/bulkAddGuard";
+import {
+  getBulkAddPasswordHint,
+  isBulkAddPasswordVerified,
+} from "./utils/bulkAddGuard";
 
 const STORAGE_KEYS = {
   configs: "cloudmail.api.configs",
@@ -869,7 +872,7 @@ function App() {
                     }}
                   />
                   <span className="field-helper-text">
-                    {isBulkAddVerified ? "密码已自动验证，可直接提交。" : "输入 dx888 后可提交添加。"}
+                    {getBulkAddPasswordHint(isBulkAddVerified)}
                   </span>
                 </div>
                 <div className="action-buttons">

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getBulkAddPasswordHint,
   isBulkAddPasswordVerified,
   validateBulkAddPassword,
 } from "../src/utils/bulkAddGuard";
@@ -22,5 +23,11 @@ describe("validateBulkAddPassword", () => {
     expect(isBulkAddPasswordVerified("dx888")).toBe(true);
     expect(isBulkAddPasswordVerified(" dx888 ")).toBe(true);
     expect(isBulkAddPasswordVerified("dx8888")).toBe(false);
+  });
+
+  it("does not expose the password in helper text", () => {
+    expect(getBulkAddPasswordHint(false)).toBe("输入验证密码后可提交添加。");
+    expect(getBulkAddPasswordHint(true)).toBe("密码已自动验证，可直接提交。");
+    expect(getBulkAddPasswordHint(false)).not.toContain("dx888");
   });
 });
